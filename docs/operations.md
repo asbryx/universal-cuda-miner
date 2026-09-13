@@ -1,37 +1,34 @@
 # Operations
 
-## Offline validation
+## CPU-only verification
 
-```sh
-python -m pytest -q
-python scripts/scan_public.py .
-python -m compileall -q src scripts tests
-```
+Install the package and run `python -m pytest -q`. The command-line tool accepts
+only explicit public fields, target, and a finite range. It performs no network
+calls and does not broadcast transactions.
 
-The test suite uses synthetic keys, addresses, challenges, receipts, and hostnames. It performs no network calls and no SSH process creation.
+## CUDA compile and runtime
 
-## Dry-run
+Compile `cuda/universal_cuda_miner.cu` once with the architecture matching the
+GPU. Run one persistent process per GPU. Send jobs through stdin and send
+`stop` before a new job or `quit` at shutdown. The worker reports only verified
+solutions. A host CPU recomputation protects the output path from a GPU or
+packing error.
 
-```sh
-python scripts/mine.py \
-  --address 0x1111111111111111111111111111111111111111 \
-  --hosts host-a:22:0,host-b:22:4 --start 0 --local-gpus 4
-```
+Use an isolated build/output directory for compile-only verification. Never
+replace or restart an occupied miner to test this repository. Runtime GPU
+parity is opt-in and should use synthetic public fields and a dedicated device.
 
-Dry-run validates that host base offsets and local GPU indices form disjoint lanes. It does not parse live RPC state, start CUDA, resolve names, open SSH, sign, or broadcast.
+## Honest performance reporting
 
-## Live mode
+The project does not publish a universal hash-rate number. Any benchmark
+report must include GPU model, driver/toolkit, architecture flag, worker
+options, protocol, template width, target mode, and whether host transfer time
+was included. A compile-only CI result is not a benchmark and is not a runtime
+parity result.
 
-Only use after reviewing source and local `.env`:
+## External integration boundary
 
-```sh
-python scripts/mine.py --live \
-  --address 0x1111111111111111111111111111111111111111 \
-  --hosts host-a:22:0,host-b:22:4 --start 0 --local-gpus 4
-```
-
-Live mode requires explicit `RPC_URLS`, `CONTRACT_ADDRESS`, `SSH_KEYFILE`, and other caps. It is intentionally not exercised by CI. Stop the run using the worker's normal stdin shutdown path or the operator's process supervisor; never use live mode against an unreviewed configuration.
-
-## Recovery
-
-When a process stops after a broadcast, first obtain transaction receipts through a trusted, separately configured RPC adapter. Store the receipts locally, then run `scripts/reconstruct_journal.py`. The reconstruction checks exact mint logs and is safe to repeat. Do not submit another transaction merely because an old journal says `confirmed` without token IDs or spend.
+A caller owns challenge retrieval, authorization, transaction submission, and
+receipt handling. Keep credentials and live RPC configuration outside this
+repository. If a caller receives a worker candidate, recompute the exact packed
+message with the same adapter before any external action.

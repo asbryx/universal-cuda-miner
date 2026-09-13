@@ -1,12 +1,35 @@
 # Configuration
 
-Configuration is environment-driven. Start from `.env.example`, keep the local `.env` untracked, and use synthetic values for dry runs.
+This package is intentionally offline. It has no RPC, wallet, SSH, signing,
+or deployment configuration. The only inputs are public protocol fields, a
+strict target, and an explicit finite nonce range.
 
-- `RPC_URLS`: comma-separated JSON-RPC endpoints. Required only for `--live`; errors expose endpoint types, not URLs.
-- `CONTRACT_ADDRESS`, `CHAIN_ID`: protocol target and chain identifier.
-- `WALLET_KEYFILE`: a local file containing exactly one `0x`-prefixed 32-byte key. Never put keys in environment snapshots or source.
-- `MAX_MINT_PRICE_WEI`, `MAX_TOTAL_MINT_WEI`, `GAS_LIMIT`, `MAX_GAS_PRICE_WEI`: fail-closed transaction caps.
-- `HOSTS`: comma-separated `host:port:base_offset` entries. Use base offsets 0 and 4 for two four-GPU hosts.
-- `CUDA_BINARY`, `SSH_USER`, `SSH_KEYFILE`: local operator paths, never committed.
+The Python API is the configuration boundary:
 
-The CLI defaults to dry-run and does not resolve hosts, contact RPC, spawn SSH, sign, or broadcast. Pass `--live` explicitly only after reviewing the configuration and accepting those side effects.
+```python
+from universal_cuda_miner import build_job, get_layout
+
+job = build_job(
+    get_layout("hashcats116"),
+    {"address": "0x...", "prev": "0x...", "anchor": "0x..."},
+    target=2**256 - 1,
+    start=0,
+    count=1_000_000,
+    step=1,
+)
+```
+
+`job.template`, `job.nonce_offset`, and `job.nonce_width` are passed to the
+persistent CUDA worker. Keep external chain state and credentials in a separate
+caller, and recompute any returned candidate with the same `ProtocolLayout`.
+Never commit live keys, RPC URLs, hostnames, or runtime state.
+
+The `.env.example` file is documentation-only; the package does not load it.
+See [protocols.md](protocols.md) for exact field layouts.
+
+---
+
+## Generated artifacts
+
+Editable installs may create `src/*.egg-info`, which is ignored and must not be
+published. CUDA outputs and benchmark reports are also ignored.

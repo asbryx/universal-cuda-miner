@@ -3,21 +3,21 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hashbroker-cuda-tools"
-version = "0.1.0"
-description = "Offline-verifiable HashBroker proof-of-work and CUDA orchestration helpers"
+name = "universal-cuda-miner"
+version = "1.0.0"
+description = "Protocol-configurable CPU verification and persistent CUDA proof-of-work worker"
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = [
-  "requests>=2.31,<3",
-  "eth-account>=0.13,<1",
-  "eth-utils>=5,<7",
-  "paramiko>=3,<4",
-  "python-dotenv>=1,<2",
+  "eth-hash[pycryptodome]>=0.7,<1",
 ]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10"]
+
+[project.scripts]
+universal-cuda-mine = "universal_cuda_miner.cli:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
