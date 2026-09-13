@@ -1,0 +1,60 @@
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*private*key*
+wallet*.json
+profiles*.json
+addresses*.txt
+# Runtime state
+*.jsonl
+*.log
+*.lock
+runtime/
+results/
+journal.json
+proof.json
+# Python/build artifacts
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+# CUDA binaries and local reports
+cuda/hashbroker_cuda
+cuda/*.o
+cuda/*.out
+benchmark*.txt
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Never commit machine-specific operational files
+hosts.txt
+proxies.txt
+inventory.json
+transfer-results.json
+known-hosts
+ssh_config
+id_*
+**/.ssh/
+**/mining.lock
+**/warm-*.json
+**/direct-journal.json
+**/preflight-*.json
+**/chain.json
+**/contract*.json
+**/source-probe-*.txt
+**/historical-*.json
+
+# Tests may create only temporary files
+.coverage
+htmlcov/
+.pytest_cache/
+__pycache__/
