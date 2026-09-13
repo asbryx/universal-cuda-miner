@@ -15,6 +15,11 @@
 
 #include <cuda_runtime.h>
 
+#include "range.hpp"
+#include <atomic>
+#include <future>
+#include <mutex>
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -269,6 +274,7 @@ std::vector<uint8_t> parse_bytes(const std::string& input, size_t width, const c
 }
 
 uint64_t parse_u64(const std::string& text, const char* name) {
+  if (text.empty() || text[0] == '-' || text[0] == '+') throw std::invalid_argument("unsigned integer required");
   size_t used = 0;
   try {
     const int base = (text.rfind("0x", 0) == 0 || text.rfind("0X", 0) == 0) ? 16 : 10;
@@ -338,13 +344,25 @@ class PersistentWorker {
     if (stream_) cudaStreamDestroy(stream_);
   }
 
-  void run(const Job& job) {
-    CUDA_CHECK(cudaMemsetAsync(device_result_, 0, sizeof(DeviceResult), stream_));
-    search_kernel<<<blocks_, threads_, 0, stream_>>>(job, device_result_);
-    CUDA_CHECK(cudaGetLastError());
-    CUDA_CHECK(cudaStreamSynchronize(stream_));
+  void run(const Job& job, const std::atomic<bool>& cancelled) {
+    CUDA_CHECK(cudaSetDevice(gpu_));
     DeviceResult result{};
-    CUDA_CHECK(cudaMemcpy(&result, device_result_, sizeof(result), cudaMemcpyDeviceToHost));
+    // Bounded launches let the stdin thread cancel without waiting for an
+    // arbitrarily large user range. No CPU/GPU shared-memory data race.
+    for (uint64_t done = 0; done < job.count;) {
+      if (cancelled.load()) return;
+      Job chunk = job;
+      chunk.count = std::min<uint64_t>(job.count - done, 262144);
+      nonce_range::advance(job.start, done, job.step, chunk.start);
+      CUDA_CHECK(cudaMemsetAsync(device_result_, 0, sizeof(DeviceResult), stream_));
+      search_kernel<<<blocks_, threads_, 0, stream_>>>(chunk, device_result_);
+      CUDA_CHECK(cudaGetLastError());
+      CUDA_CHECK(cudaStreamSynchronize(stream_));
+      CUDA_CHECK(cudaMemcpy(&result, device_result_, sizeof(result), cudaMemcpyDeviceToHost));
+      if (cancelled.load()) return;
+      if (result.found) break;
+      done += chunk.count;
+    }
     if (!result.found) {
       std::cout << "result job=none found=0\n" << std::flush;
       return;
@@ -392,10 +410,12 @@ Job parse_job(const std::string& line) {
   job.message_width = static_cast<uint32_t>(template_text.size() / 2);
   const auto template_bytes = parse_bytes(templ, job.message_width, "template");
   for (uint32_t i = 0; i < job.message_width; ++i) job.templ[i] = template_bytes[i];
-  job.nonce_offset = static_cast<uint32_t>(parse_u64(offset, "nonce_offset"));
-  job.nonce_width = static_cast<uint32_t>(parse_u64(width, "nonce_width"));
-  if (job.message_width == 0 || job.nonce_width == 0 || job.nonce_offset + job.nonce_width > job.message_width)
+  const auto offset_value = parse_u64(offset, "nonce_offset");
+  const auto width_value = parse_u64(width, "nonce_width");
+  if (!width_value || width_value > 32 || offset_value > job.message_width || width_value > job.message_width - offset_value)
     throw std::invalid_argument("nonce field is outside template");
+  job.nonce_offset = static_cast<uint32_t>(offset_value);
+  job.nonce_width = static_cast<uint32_t>(width_value);
   if (algorithm == "sha256") job.algorithm = 0;
   else if (algorithm == "keccak256") job.algorithm = 1;
   else throw std::invalid_argument("algorithm must be sha256 or keccak256");
@@ -406,27 +426,7 @@ Job parse_job(const std::string& line) {
   job.count = parse_u64(count, "count");
   job.step = parse_u64(step, "step");
   if (job.step == 0) throw std::invalid_argument("step must be nonzero");
-  if (job.count != 0) {
-    const uint64_t product_hi = __umul64hi(job.count - 1, job.step);
-    const uint64_t product_lo = (job.count - 1) * job.step;
-    const uint64_t old0 = job.start[0];
-    const uint64_t v0 = old0 + product_lo;
-    const uint64_t c0 = v0 < old0;
-    const uint64_t old1 = job.start[1];
-    const uint64_t t1 = old1 + product_hi;
-    const uint64_t c1 = t1 < old1;
-    const uint64_t v1 = t1 + c0;
-    const uint64_t c2 = c1 || v1 < t1;
-    const uint64_t v2 = job.start[2] + c2;
-    const uint64_t c3 = v2 < job.start[2];
-    const uint64_t v3 = job.start[3] + c3;
-    if (v3 < job.start[3]) throw std::invalid_argument("job nonce range overflows uint256");
-    if (job.nonce_width < 32) {
-      const unsigned bits = job.nonce_width * 8;
-      if (bits < 64 && (v1 || v0 >= (1ULL << bits))) throw std::invalid_argument("job nonce range exceeds nonce width");
-      if (bits <= 128 && (v3 || v2)) throw std::invalid_argument("job nonce range exceeds nonce width");
-    }
-  }
+  nonce_range::validate(job.start, job.count, job.step, job.nonce_width);
   std::cout << "job_accepted protocol=" << protocol << " message_bytes=" << job.message_width
             << " nonce_offset=" << job.nonce_offset << " nonce_width=" << job.nonce_width << "\n" << std::flush;
   return job;
@@ -448,18 +448,35 @@ int main(int argc, char** argv) {
       } else throw std::invalid_argument("unknown option: " + arg);
     }
     PersistentWorker worker(gpu, blocks, threads);
+    std::atomic<bool> cancelled{false};
+    std::future<void> active;
+    auto finish = [&]() {
+      if (active.valid()) active.get();
+    };
     std::string line;
     while (std::getline(std::cin, line)) {
       if (line.empty()) continue;
-      if (line == "quit") break;
-      if (line == "stop") { std::cout << "stopped\n" << std::flush; continue; }
       try {
+        if (line == "stop" || line == "quit") {
+          cancelled.store(true);
+          finish();
+          std::cout << "stopped\n" << std::flush;
+          if (line == "quit") break;
+          continue;
+        }
         if (line.rfind("job ", 0) != 0) throw std::invalid_argument("expected job, stop, or quit");
-        worker.run(parse_job(line));
+        // Superseding work cancels the old range before accepting a new one.
+        cancelled.store(true);
+        finish();
+        const Job job = parse_job(line);
+        cancelled.store(false);
+        active = std::async(std::launch::async, [&worker, &cancelled, job]() { worker.run(job, cancelled); });
       } catch (const std::exception& error) {
         std::cout << "error " << error.what() << "\n" << std::flush;
       }
     }
+    cancelled.store(true);
+    finish();
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "fatal: " << error.what() << '\n';
