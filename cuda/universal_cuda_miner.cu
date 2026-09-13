@@ -406,6 +406,27 @@ Job parse_job(const std::string& line) {
   job.count = parse_u64(count, "count");
   job.step = parse_u64(step, "step");
   if (job.step == 0) throw std::invalid_argument("step must be nonzero");
+  if (job.count != 0) {
+    const uint64_t product_hi = __umul64hi(job.count - 1, job.step);
+    const uint64_t product_lo = (job.count - 1) * job.step;
+    const uint64_t old0 = job.start[0];
+    const uint64_t v0 = old0 + product_lo;
+    const uint64_t c0 = v0 < old0;
+    const uint64_t old1 = job.start[1];
+    const uint64_t t1 = old1 + product_hi;
+    const uint64_t c1 = t1 < old1;
+    const uint64_t v1 = t1 + c0;
+    const uint64_t c2 = c1 || v1 < t1;
+    const uint64_t v2 = job.start[2] + c2;
+    const uint64_t c3 = v2 < job.start[2];
+    const uint64_t v3 = job.start[3] + c3;
+    if (v3 < job.start[3]) throw std::invalid_argument("job nonce range overflows uint256");
+    if (job.nonce_width < 32) {
+      const unsigned bits = job.nonce_width * 8;
+      if (bits < 64 && (v1 || v0 >= (1ULL << bits))) throw std::invalid_argument("job nonce range exceeds nonce width");
+      if (bits <= 128 && (v3 || v2)) throw std::invalid_argument("job nonce range exceeds nonce width");
+    }
+  }
   std::cout << "job_accepted protocol=" << protocol << " message_bytes=" << job.message_width
             << " nonce_offset=" << job.nonce_offset << " nonce_width=" << job.nonce_width << "\n" << std::flush;
   return job;
