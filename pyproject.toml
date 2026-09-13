@@ -12,6 +12,8 @@ dependencies = [
   "requests>=2.31,<3",
   "eth-account>=0.13,<1",
   "eth-utils>=5,<7",
+  "paramiko>=3,<4",
+  "python-dotenv>=1,<2",
 ]
 
 [project.optional-dependencies]
