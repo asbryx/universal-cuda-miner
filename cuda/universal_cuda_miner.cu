@@ -15,7 +15,6 @@
 
 #include <cuda_runtime.h>
 
-#include "range.hpp"
 #include <atomic>
 #include <future>
 #include <mutex>
@@ -426,7 +425,11 @@ Job parse_job(const std::string& line) {
   job.count = parse_u64(count, "count");
   job.step = parse_u64(step, "step");
   if (job.step == 0) throw std::invalid_argument("step must be nonzero");
-  nonce_range::validate(job.start, job.count, job.step, job.nonce_width);
+  if (job.count != 0 && job.nonce_width < 32) {
+    const unsigned bits = job.nonce_width * 8;
+    if (bits < 64 && (job.start[1] != 0 || job.start[0] >= (1ULL << bits)))
+      throw std::invalid_argument("start exceeds nonce width");
+  }
   std::cout << "job_accepted protocol=" << protocol << " message_bytes=" << job.message_width
             << " nonce_offset=" << job.nonce_offset << " nonce_width=" << job.nonce_width << "\n" << std::flush;
   return job;
