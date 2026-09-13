@@ -36,6 +36,11 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("start/count/step must be nonnegative, nonnegative, and positive")
     layout = get_layout(args.protocol)
     fields = parse_fields(args.fields)
+    layout.pack(fields, args.start)
+    if not 0 <= args.target < 1 << 256:
+        raise ValueError("target must be an unsigned uint256")
+    if args.count and args.start + (args.count - 1) * args.step >= 1 << (8 * layout.nonce_width):
+        raise ValueError("job nonce range overflows the layout nonce field")
     checked = 0
     for index in range(args.count):
         nonce = args.start + index * args.step

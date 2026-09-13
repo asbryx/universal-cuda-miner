@@ -116,3 +116,10 @@ def test_unknown_or_malformed_fields_fail_closed() -> None:
         HASHBROKER84.pack({"address": ADDRESS, "challenge": CHALLENGE, "extra": "0x00"}, 0)
     with pytest.raises(ValueError, match="target"):
         build_job(HASHCATS116, {"address": ADDRESS, "prev": PREV, "anchor": ANCHOR}, target=2**256)
+
+
+def test_zero_count_cli_still_validates_configuration() -> None:
+    from universal_cuda_miner.cli import main
+    with pytest.raises(ValueError, match="exactly 32 bytes"):
+        main(["--protocol", "prspct84", "--fields", '{"seed":"0x00","address":"0x00"}',
+              "--target", "0x0", "--count", "0"])
