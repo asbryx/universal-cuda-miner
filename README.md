@@ -14,6 +14,7 @@ RPC, wallet, signing, SSH, transaction, or deployment automation.
 |---|---|---|---|
 | `hashbroker84` | SHA-256 | `address[20] || zero[24] || nonce[8] || challenge[32]` | bytes 44..51, big-endian uint64 |
 | `hashcats116` | Ethereum Keccak-256 | `address[20] || nonce[32] || prev[32] || anchor[32]` | bytes 20..51, big-endian uint256 |
+| `minerpotatos116` | Ethereum Keccak-256 | `address[20] || prevWork[32] || anchor[32] || nonce[32]` | bytes 84..115, big-endian uint256 |
 | `prspct84` | Ethereum Keccak-256 | `seed[32] || address[20] || nonce[32]` | bytes 52..83, big-endian uint256 |
 
 `keccak256` here means Ethereum Keccak-256 (domain suffix `0x01`), not
@@ -25,6 +26,7 @@ The Python adapters are namespaced as:
 ```text
 universal_cuda_miner.adapters.hashbroker
 universal_cuda_miner.adapters.hashcats
+universal_cuda_miner.adapters.minerpotatos
 universal_cuda_miner.adapters.prspct
 ```
 
@@ -59,7 +61,7 @@ finite range had no candidate or input validation failed.
 `cuda/universal_cuda_miner.cu` is one persistent worker entrypoint. It compiles
 once and receives layout metadata at runtime: algorithm, message width, nonce
 offset, nonce width, zeroed template, target, and nonce range. It supports the
-three layouts above without generating or compiling a protocol-specific kernel.
+the layouts above without generating or compiling a protocol-specific kernel.
 Every GPU result is recomputed by an independent host implementation before it
 is emitted.
 
@@ -68,7 +70,12 @@ and target GPU):
 
 ```sh
 nvcc -O3 -std=c++17 -arch=sm_89 cuda/universal_cuda_miner.cu -o universal_cuda_miner
+./universal_cuda_miner --self-test
 ```
+
+`--self-test` is a mandatory runtime gate on each deployed GPU. A successful
+`nvcc` compile or `nvidia-smi` result alone does not prove that CUDA contexts
+and the UVM device work.
 
 The worker remains resident and accepts one job per line:
 

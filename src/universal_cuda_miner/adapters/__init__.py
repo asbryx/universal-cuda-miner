@@ -1,5 +1,5 @@
 """Named protocol adapters built on the common layout engine."""
 
-from . import hashbroker, hashcats, prspct
+from . import hashbroker, hashcats, minerpotatos, prspct
 
-__all__ = ["hashbroker", "hashcats", "prspct"]
+__all__ = ["hashbroker", "hashcats", "minerpotatos", "prspct"]

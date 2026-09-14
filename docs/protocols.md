@@ -21,6 +21,8 @@ worker receives that template and substitutes a runtime nonce at
   Ethereum Keccak-256 of exactly 116 bytes.
 - `prspct84`: seed 32, address 20, nonce uint256; Ethereum Keccak-256 of exactly
   84 bytes.
+- `minerpotatos116`: address 20, previous work 32, anchor 32, nonce uint256;
+  Ethereum Keccak-256 of exactly 116 bytes. The nonce starts at byte offset 84.
 
 Do not infer a layout from field names or word alignment. Tests assert exact byte
 offsets and independent reference digests.
