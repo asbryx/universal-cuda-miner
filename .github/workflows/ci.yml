@@ -39,3 +39,21 @@ jobs:
         run: nvcc -O2 -std=c++17 -arch=sm_75 -c cuda/universal_cuda_miner.cu -o /tmp/universal_cuda_miner.o
       - name: Verify object exists
         run: test -s /tmp/universal_cuda_miner.o
+
+  cuda-runtime:
+    name: CUDA runtime self-test (opt-in self-hosted)
+    if: ${{ vars.CUDA_RUNTIME_RUNNER == 'true' }}
+    runs-on: [self-hosted, linux, cuda]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile worker for runner
+        run: nvcc -O3 -std=c++17 -arch=sm_89 cuda/universal_cuda_miner.cu -o /tmp/universal_cuda_miner
+      - name: Run self-test on every visible GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          nvidia-smi -L
+          count="$(nvidia-smi --query-gpu=index --format=csv,noheader | wc -l)"
+          for gpu in $(seq 0 $((count - 1))); do
+            CUDA_VISIBLE_DEVICES="$gpu" /tmp/universal_cuda_miner --gpu 0 --self-test
+          done

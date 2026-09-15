@@ -109,6 +109,16 @@ HASHCATS116 = ProtocolLayout(
     _digest=keccak,
 )
 
+MINERPOTATOS116 = ProtocolLayout(
+    name="minerpotatos116",
+    algorithm="keccak256",
+    message_width=116,
+    nonce_offset=84,
+    nonce_width=32,
+    fields=(Field("address", 20), Field("prevWork", 32), Field("anchor", 32), Field("nonce", 32)),
+    _digest=keccak,
+)
+
 PRSPCT84 = ProtocolLayout(
     name="prspct84",
     algorithm="keccak256",
@@ -119,7 +129,7 @@ PRSPCT84 = ProtocolLayout(
     _digest=keccak,
 )
 
-_LAYOUTS = {layout.name: layout for layout in (HASHBROKER84, HASHCATS116, PRSPCT84)}
+_LAYOUTS = {layout.name: layout for layout in (HASHBROKER84, HASHCATS116, MINERPOTATOS116, PRSPCT84)}
 
 
 def get_layout(name: str) -> ProtocolLayout:
@@ -213,6 +223,7 @@ def serialize_job(job: Job, job_id: str = "job") -> str:
 __all__ = [
     "HASHBROKER84",
     "HASHCATS116",
+    "MINERPOTATOS116",
     "PRSPCT84",
     "Job",
     "ProtocolLayout",

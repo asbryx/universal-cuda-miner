@@ -38,6 +38,7 @@ constexpr int kMaxMessage = 116;
 constexpr int kDigestBytes = 32;
 constexpr int kKeccakRate = 136;
 constexpr int kShaBlock = 64;
+#ifdef __CUDA_ARCH__
 __device__ __constant__ uint32_t kShaInitial[8] = {
     0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
     0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u};
@@ -67,6 +68,39 @@ __device__ __constant__ int kKeccakRot[24] = {1, 3, 6, 10, 15, 21, 28, 36, 45, 5
                                 27, 41, 56, 8, 25, 43, 62, 18, 39, 61, 20, 44};
 __device__ __constant__ int kKeccakPiln[24] = {10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4,
                                  15, 23, 19, 13, 12, 2, 20, 14, 22, 9, 6, 1};
+
+#else
+static const uint32_t kShaInitial[8] = {
+    0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
+    0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u};
+static const uint32_t kShaK[64] = {
+    0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u, 0x3956c25bu, 0x59f111f1u,
+    0x923f82a4u, 0xab1c5ed5u, 0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u,
+    0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u, 0xc19bf174u, 0xe49b69c1u, 0xefbe4786u,
+    0x0fc19dc6u, 0x240ca1ccu, 0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau,
+    0x983e5152u, 0xa831c66du, 0xb00327c8u, 0xbf597fc7u, 0xc6e00bf3u, 0xd5a79147u,
+    0x06ca6351u, 0x14292967u, 0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu, 0x53380d13u,
+    0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u, 0xa2bfe8a1u, 0xa81a664bu,
+    0xc24b8b70u, 0xc76c51a3u, 0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u,
+    0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u, 0x391c0cb3u, 0x4ed8aa4au,
+    0x5b9cca4fu, 0x682e6ff3u, 0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u,
+    0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u};
+
+static const uint64_t kKeccakRC[24] = {
+    0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL,
+    0x8000000080008000ULL, 0x000000000000808bULL, 0x0000000080000001ULL,
+    0x8000000080008081ULL, 0x8000000000008009ULL, 0x000000000000008aULL,
+    0x0000000000000088ULL, 0x0000000080008009ULL, 0x000000008000000aULL,
+    0x000000008000808bULL, 0x800000000000008bULL, 0x8000000000008089ULL,
+    0x8000000000008003ULL, 0x8000000000008002ULL, 0x8000000000000080ULL,
+    0x000000000000800aULL, 0x800000008000000aULL, 0x8000000080008081ULL,
+    0x8000000000008080ULL, 0x0000000080000001ULL, 0x8000000080008008ULL};
+static const int kKeccakRot[24] = {1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14,
+                                27, 41, 56, 8, 25, 43, 62, 18, 39, 61, 20, 44};
+static const int kKeccakPiln[24] = {10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4,
+                                 15, 23, 19, 13, 12, 2, 20, 14, 22, 9, 6, 1};
+
+#endif
 
 struct Job {
   uint8_t templ[kMaxMessage]{};
@@ -301,6 +335,34 @@ void parse_u256(const std::string& input, uint64_t out[4]) {
   }
 }
 
+// Host-only high-half multiplication for portable chunk scheduling.
+uint64_t host_mul_hi_u64(uint64_t a, uint64_t b) {
+  const uint64_t mask = 0xffffffffULL;
+  const uint64_t a0 = a & mask, a1 = a >> 32;
+  const uint64_t b0 = b & mask, b1 = b >> 32;
+  const uint64_t p0 = a0 * b0;
+  const uint64_t p1 = a0 * b1;
+  const uint64_t p2 = a1 * b0;
+  const uint64_t p3 = a1 * b1;
+  const uint64_t middle = (p0 >> 32) + (p1 & mask) + (p2 & mask);
+  return p3 + (p1 >> 32) + (p2 >> 32) + (middle >> 32);
+}
+
+void advance_nonce_host(const uint64_t start[4], uint64_t index,
+                        uint64_t step, uint64_t out[4]) {
+  const uint64_t low = index * step;
+  const uint64_t high = host_mul_hi_u64(index, step);
+  out[0] = start[0] + low;
+  uint64_t carry = out[0] < start[0] ? 1ULL : 0ULL;
+  const uint64_t sum1 = start[1] + high;
+  const uint64_t high_carry = sum1 < start[1] ? 1ULL : 0ULL;
+  out[1] = sum1 + carry;
+  carry = high_carry | (out[1] < sum1 ? 1ULL : 0ULL);
+  out[2] = start[2] + carry;
+  carry = out[2] < start[2] ? 1ULL : 0ULL;
+  out[3] = start[3] + carry;
+}
+
 std::string hex_digest(const uint8_t digest[32]) {
   std::ostringstream out;
   out << "0x" << std::hex << std::setfill('0');
@@ -352,7 +414,7 @@ class PersistentWorker {
       if (cancelled.load()) return;
       Job chunk = job;
       chunk.count = std::min<uint64_t>(job.count - done, 262144);
-      nonce_range::advance(job.start, done, job.step, chunk.start);
+      advance_nonce_host(job.start, done, job.step, chunk.start);
       CUDA_CHECK(cudaMemsetAsync(device_result_, 0, sizeof(DeviceResult), stream_));
       search_kernel<<<blocks_, threads_, 0, stream_>>>(chunk, device_result_);
       CUDA_CHECK(cudaGetLastError());
@@ -398,6 +460,29 @@ class PersistentWorker {
   DeviceResult* device_result_ = nullptr;
 };
 
+void run_self_test(PersistentWorker& worker) {
+  Job job{};
+  job.message_width = 116;
+  job.nonce_offset = 84;
+  job.nonce_width = 32;
+  job.algorithm = 1;
+  job.count = 1;
+  job.step = 1;
+  for (int i = 0; i < 20; ++i) job.templ[i] = 0x11;
+  for (int i = 20; i < 52; ++i) job.templ[i] = 0x22;
+  for (int i = 52; i < 84; ++i) job.templ[i] = 0x33;
+  for (int i = 0; i < 4; ++i) job.target[i] = UINT64_MAX;
+  uint8_t expected[32];
+  keccak256(job.templ, job.message_width, expected);
+  if (hex_digest(expected) !=
+      "0x6cab27cfd0885823349064989c7f14414d9dfb1037b7cd7862f71c140eba5be3") {
+    throw std::runtime_error("self-test host Keccak vector mismatch");
+  }
+  std::atomic<bool> cancelled{false};
+  worker.run(job, cancelled);
+  std::cout << "self_test_passed=true\n" << std::flush;
+}
+
 Job parse_job(const std::string& line) {
   std::istringstream in(line);
   std::string command, id, protocol, algorithm, offset, width, templ, target, start, count, step, extra;
@@ -440,17 +525,23 @@ Job parse_job(const std::string& line) {
 int main(int argc, char** argv) {
   try {
     int gpu = 0, blocks = 0, threads = 256;
+    bool self_test = false;
     for (int i = 1; i < argc; ++i) {
       const std::string arg = argv[i];
       if (arg == "--gpu" && i + 1 < argc) gpu = static_cast<int>(parse_u64(argv[++i], "gpu"));
       else if (arg == "--blocks" && i + 1 < argc) blocks = static_cast<int>(parse_u64(argv[++i], "blocks"));
       else if (arg == "--threads" && i + 1 < argc) threads = static_cast<int>(parse_u64(argv[++i], "threads"));
+      else if (arg == "--self-test") self_test = true;
       else if (arg == "--help") {
-        std::cout << "universal_cuda_miner --gpu ID --blocks N --threads N\n";
+        std::cout << "universal_cuda_miner --gpu ID --blocks N --threads N [--self-test]\n";
         return 0;
       } else throw std::invalid_argument("unknown option: " + arg);
     }
     PersistentWorker worker(gpu, blocks, threads);
+    if (self_test) {
+      run_self_test(worker);
+      return 0;
+    }
     std::atomic<bool> cancelled{false};
     std::future<void> active;
     auto finish = [&]() {

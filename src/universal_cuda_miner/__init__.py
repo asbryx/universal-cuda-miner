@@ -8,6 +8,7 @@ consumes the same template and runtime nonce metadata.
 from .layouts import (
     HASHBROKER84,
     HASHCATS116,
+    MINERPOTATOS116,
     PRSPCT84,
     ProtocolLayout,
     build_job,
@@ -22,6 +23,7 @@ from .layouts import (
 __all__ = [
     "HASHBROKER84",
     "HASHCATS116",
+    "MINERPOTATOS116",
     "PRSPCT84",
     "ProtocolLayout",
     "build_job",

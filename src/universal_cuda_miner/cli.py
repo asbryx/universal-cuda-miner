@@ -21,7 +21,7 @@ def parse_fields(raw: str) -> dict[str, str]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--protocol", required=True, help="hashbroker84, hashcats116, or prspct84")
+    parser.add_argument("--protocol", required=True, help="hashbroker84, hashcats116, minerpotatos116, or prspct84")
     parser.add_argument("--fields", required=True, help="JSON object containing public protocol fields")
     parser.add_argument("--target", required=True, type=lambda value: int(value, 0), help="strict uint256 target")
     parser.add_argument("--start", type=lambda value: int(value, 0), default=0)
